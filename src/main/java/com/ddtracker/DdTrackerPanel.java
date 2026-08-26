@@ -25,6 +25,8 @@ import net.runelite.client.util.LinkBrowser;
 public class DdTrackerPanel extends PluginPanel
 {
 	private final JLabel statusLabel = new JLabel();
+	private final JLabel gearHeader = new JLabel();
+	private final JPanel gearPanel = new JPanel();
 	private final JPanel listPanel = new JPanel();
 
 	DdTrackerPanel(DdTrackerPlugin plugin)
@@ -49,11 +51,40 @@ public class DdTrackerPanel extends PluginPanel
 
 		add(header, BorderLayout.NORTH);
 
+		// Gear first: it is live "who is a problem right now", where the compliance list
+		// below it is history you read after the fact.
+		final JPanel body = new JPanel();
+		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
+		body.setOpaque(false);
+
+		gearPanel.setLayout(new BoxLayout(gearPanel, BoxLayout.Y_AXIS));
+		gearPanel.setOpaque(false);
+		gearPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
 		listPanel.setLayout(new BoxLayout(listPanel, BoxLayout.Y_AXIS));
 		listPanel.setOpaque(false);
-		add(listPanel, BorderLayout.CENTER);
+		listPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
+		body.add(sectionHeader(gearHeader, "GEAR CHECK"));
+		body.add(gearPanel);
+		body.add(Box.createVerticalStrut(12));
+		body.add(sectionHeader(new JLabel(), "DD COMPLIANCE"));
+		body.add(listPanel);
+
+		add(body, BorderLayout.CENTER);
 		add(buildCommunityFooter(), BorderLayout.SOUTH);
+
+		updateGear(java.util.Collections.emptyList());
+	}
+
+	private JLabel sectionHeader(JLabel label, String text)
+	{
+		label.setText(text);
+		label.setFont(label.getFont().deriveFont(Font.BOLD, 11f));
+		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		label.setAlignmentX(Component.LEFT_ALIGNMENT);
+		label.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
+		return label;
 	}
 
 	private JPanel buildCommunityFooter()
@@ -86,6 +117,61 @@ public class DdTrackerPanel extends PluginPanel
 		return footer;
 	}
 
+	// ---- Gear check (live) ----
+
+	void updateGear(List<GearFlag> flags)
+	{
+		SwingUtilities.invokeLater(() ->
+		{
+			gearHeader.setText(flags.isEmpty()
+				? "GEAR CHECK"
+				: "GEAR CHECK (" + flags.size() + ")");
+
+			gearPanel.removeAll();
+
+			if (flags.isEmpty())
+			{
+				gearPanel.add(hint("Nobody nearby is flagged."));
+			}
+			else
+			{
+				for (GearFlag flag : flags)
+				{
+					gearPanel.add(buildGearRow(flag));
+					gearPanel.add(Box.createVerticalStrut(4));
+				}
+			}
+
+			gearPanel.revalidate();
+			gearPanel.repaint();
+		});
+	}
+
+	private JPanel buildGearRow(GearFlag flag)
+	{
+		final JPanel row = new JPanel(new GridLayout(1, 2));
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
+		row.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+		final JLabel name = new JLabel(flag.getDisplayName());
+		name.setForeground(Color.WHITE);
+		row.add(name);
+
+		final JLabel warning = new JLabel(flag.getWarning(), JLabel.RIGHT);
+		warning.setForeground(flag.isNaked()
+			? ColorScheme.PROGRESS_ERROR_COLOR
+			: ColorScheme.BRAND_ORANGE);
+		row.add(warning);
+
+		row.setToolTipText(flag.getDisplayName() + " — " + flag.getWarning()
+			+ " (visible equipment only)");
+		return row;
+	}
+
+	// ---- DD compliance (history) ----
+
 	void update(List<PlayerStats> stats, boolean tileSet)
 	{
 		SwingUtilities.invokeLater(() ->
@@ -98,10 +184,7 @@ public class DdTrackerPanel extends PluginPanel
 
 			if (stats.isEmpty())
 			{
-				final JLabel empty = new JLabel("No calls tracked yet.");
-				empty.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-				empty.setAlignmentX(Component.LEFT_ALIGNMENT);
-				listPanel.add(empty);
+				listPanel.add(hint("No calls tracked yet."));
 			}
 			else
 			{
@@ -120,6 +203,14 @@ public class DdTrackerPanel extends PluginPanel
 			listPanel.revalidate();
 			listPanel.repaint();
 		});
+	}
+
+	private JLabel hint(String text)
+	{
+		final JLabel label = new JLabel(text);
+		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		label.setAlignmentX(Component.LEFT_ALIGNMENT);
+		return label;
 	}
 
 	private JPanel buildRow(PlayerStats ps)

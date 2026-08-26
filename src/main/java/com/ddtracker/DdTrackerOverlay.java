@@ -1,33 +1,45 @@
 package com.ddtracker;
 
+import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
 import java.awt.Polygon;
+import java.awt.Shape;
+import java.awt.Stroke;
 import javax.inject.Inject;
 import net.runelite.api.Client;
 import net.runelite.api.Perspective;
 import net.runelite.api.Player;
 import net.runelite.api.Point;
+import net.runelite.api.TileObject;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.OverlayUtil;
+import net.runelite.client.ui.overlay.outline.ModelOutlineRenderer;
 
 public class DdTrackerOverlay extends Overlay
 {
+	private static final Stroke GATE_STROKE = new BasicStroke(2f);
+	private static final int GATE_OUTLINE_WIDTH = 3;
+	private static final int GATE_OUTLINE_FEATHER = 4;
+
 	private final Client client;
 	private final DdTrackerPlugin plugin;
 	private final DdTrackerConfig config;
+	private final ModelOutlineRenderer modelOutlineRenderer;
 
 	@Inject
-	private DdTrackerOverlay(Client client, DdTrackerPlugin plugin, DdTrackerConfig config)
+	private DdTrackerOverlay(Client client, DdTrackerPlugin plugin, DdTrackerConfig config,
+		ModelOutlineRenderer modelOutlineRenderer)
 	{
 		this.client = client;
 		this.plugin = plugin;
 		this.config = config;
+		this.modelOutlineRenderer = modelOutlineRenderer;
 		setPosition(OverlayPosition.DYNAMIC);
 		setLayer(OverlayLayer.ABOVE_SCENE);
 	}
@@ -35,6 +47,7 @@ public class DdTrackerOverlay extends Overlay
 	@Override
 	public Dimension render(Graphics2D graphics)
 	{
+		renderBankGates(graphics);
 		renderGearWarnings(graphics);
 		renderCallout(graphics);
 		renderDd(graphics);
@@ -124,6 +137,65 @@ public class DdTrackerOverlay extends Overlay
 			if (textLoc != null)
 			{
 				OverlayUtil.renderTextLocation(graphics, textLoc, name, color);
+			}
+		}
+	}
+
+	// ---- Mass bank gates ----
+
+	private void renderBankGates(Graphics2D graphics)
+	{
+		final String label = plugin.getBankAlertLabel();
+		if (label == null || !config.massBankReminder())
+		{
+			return;
+		}
+
+		final Color color = config.massBankColor();
+		final Color fill = new Color(color.getRed(), color.getGreen(), color.getBlue(), 40);
+		final Player local = client.getLocalPlayer();
+
+		TileObject nearest = null;
+		int nearestDistance = Integer.MAX_VALUE;
+
+		for (TileObject gate : plugin.getBankGates())
+		{
+			if (gate.getPlane() != client.getPlane())
+			{
+				continue;
+			}
+
+			modelOutlineRenderer.drawOutline(gate, GATE_OUTLINE_WIDTH, color, GATE_OUTLINE_FEATHER);
+
+			final Shape clickbox = gate.getClickbox();
+			if (clickbox != null)
+			{
+				OverlayUtil.renderPolygon(graphics, clickbox, color, fill, GATE_STROKE);
+			}
+
+			if (local != null)
+			{
+				final WorldPoint wp = gate.getWorldLocation();
+				if (wp != null)
+				{
+					final int distance = local.getWorldLocation().distanceTo(wp);
+					if (distance < nearestDistance)
+					{
+						nearestDistance = distance;
+						nearest = gate;
+					}
+				}
+			}
+		}
+
+		// One label only, on the closest gate, so a double gate is not written on twice.
+		// No countdown here on purpose - the gates just stay gold until the timer lapses.
+		if (nearest != null)
+		{
+			final LocalPoint lp = nearest.getLocalLocation();
+			if (lp != null)
+			{
+				renderTileText(graphics, lp, label, color);
 			}
 		}
 	}

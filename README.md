@@ -1,63 +1,190 @@
-# Wildy Agility — RuneLite plugin
+# Wildy Agility
 
-Tracks which players actually stack ("dd") when a call goes out in your friends chat —
-built for the Wilderness Agility Course / AFC-style anti-pk scouting.
+A RuneLite plugin for **Agility FC** masses at the Wilderness Agility Course.
 
-## How it works
+It watches your friends chat and turns the calls people are already making — *dd*, *pker at
+gate*, *pray range*, *mass bank* — into things you can actually see on screen, and keeps track
+of who stacks when it matters.
 
-1. **Set the DD tile**: hold **Shift** and right-click the gate tile (or wherever your FC stacks) → **Set DD tile**. Shift + right-click the same tile again to clear it.
-2. When a **ranked** member of your friends chat types a trigger word (`dd`, `ddd`, or `stack` — configurable) as the start of a message, a call starts.
-3. Every FC member within the tracking radius (default 15 tiles) at call time is tracked for the grace period (default **60 seconds**, about one lap).
-4. During the call:
-   - **Green** highlight = currently on the DD tile
-   - **Yellow** = reached the tile during the call but stepped off
-   - **Red** = never reached the tile
-   - A countdown is drawn over the DD tile.
-5. When the grace period ends, a game message summarizes results (e.g. `Wildy Agility: 5/7 stacked. Missed: PlayerA, PlayerB`) and the **side panel** (red DD icon in the sidebar) updates per-player stats: calls seen, times dd'd, and compliance %. Players with the most misses sort to the top.
+> **New here?** Join the in-game friends chat **Agility FC** and read the rules first:
+> **[discord.gg/agilityfc](https://discord.gg/agilityfc)**
 
-**Call spam is de-duplicated** by a single "min seconds between calls" setting (default 65s, ~one lap), measured from when a call starts. Any DD calls inside that window — chat spam as everyone echoes "dd", or repeats for the same pker — fold into the one call, so a single event is one entry in everyone's stats. The next lap's genuine call still registers. Stats are per-session; use **Reset stats** in the panel to clear.
+---
 
-## Config options
+## Quick start
 
-- Trigger words, channel (friends chat / clan chat / both)
-- Ranked callers only (on by default)
-- Track channel members only vs. everyone nearby
-- Tracking radius, grace period, tile tolerance (count adjacent tiles as stacked)
-- All highlight colors, chat summary toggle
+1. Enable **Wildy Agility** in the RuneLite plugin list.
+2. Go to the course. The DD tile is already set to AFC's official tile — if you want a stack
+   somewhere else, hold **Shift**, right-click that tile and choose **Set DD tile**.
+3. That's it. Callout locations ship preloaded with AFC's official markers, so nothing else
+   needs setting up.
 
-## Location callouts
+The **red DD icon** in the RuneLite sidebar opens the stats panel.
 
-When a (ranked) FC message mentions a course landmark — **gate, pipe, rope/swing, stones/steps, log, cliff/rocks, dispenser** — the plugin shows a hint arrow to it plus an orange area highlight with the caller's name, auto-clearing after 15s (configurable). So "pker gate" or "2 mager at log" instantly shows everyone where to look.
+---
 
-Coordinates ship as AFC's official tile markers, so no setup is needed. To add your own spots (e.g. `bank`) or adjust one: stand on the tile in game and type `::ddloc <name>`. `::ddloc` alone lists saved locations; `::ddloc remove <name>` deletes one. Locations persist between sessions.
+## DD tracking
 
-A **callout blocklist** stops false pings from ordinary chat — "dont let him log", "he's logging", "trying to log out" etc. will not fire the Log obstacle callout. Edit the phrase list in config if your FC uses other wording.
+A call starts when `dd` is called **twice within 20 seconds** by a
+**ranked** FC member — either two ranks saying it once each, or one rank saying it twice.
+A single "dd" in conversation does nothing.
 
-## Prayer call alerts
+While it's waiting for the second call you get a quiet `dd 1/2` in chat, so it's never
+silently doing nothing. Turn that off, or change how many calls are needed, in the settings.
 
-When a rank calls a protection prayer — "pray range", "prot mage", "protect melee" — the prayer tab icon flashes with a **PRAY RANGE** banner over it for 15s. It requires both a pray word *and* a style, so "he's ranging you" or "mage incoming" won't fire it.
+Everyone in your FC within **60 tiles** of the DD tile gets tracked for the next **60 seconds**
+(about one lap), and gets colour-coded above their head:
 
-## Gear check
+| Colour | Meaning |
+| --- | --- |
+| 🟢 Green | On the DD tile right now |
+| 🟡 Yellow | Made it to the tile during the call, has since moved off |
+| 🔴 Red | Never made it |
 
-AFC expects runners to carry a crossbow so they can interrupt fights from range mid-lap. The plugin flags FC members whose visible weapon isn't a crossbow ("No xbow") or who have nothing equipped ("Unarmed") in orange above their head, and anyone running with no body **and** no leg armour as **"NAKED"** in red — AFC kicks players who show up naked. Config: check for crossbows specifically, any weapon, or off. Note: only *visible* equipment is readable client-side — inventory (food, phoenix necklace count, etc.) of other players is not.
+A countdown shows over the tile. When it runs out you get a summary in chat —
+`Wildy Agility: 5/7 stacked. Missed: PlayerA, PlayerB` — and the sidebar panel updates each
+player's running record: calls seen, times they stacked, and their compliance %. Worst
+offenders sort to the top. **Reset stats** in the panel clears the board.
 
-## Building & running
+**Call spam is handled.** Everyone echoes "dd" so the whole FC sees it, and people repeat it
+for the same pker. Any calls within 65 seconds of each other fold into a single event, so one
+pker is one entry in everyone's stats — not fifteen. The next lap's real call still counts,
+and spam that arrives while a call is already running is counted toward the next one rather
+than thrown away.
 
-Requires JDK 11+ and Gradle (or just open in IntelliJ IDEA, which handles both).
+The tracking radius is maxed at 60 tiles so leechers on the far side of the course still get
+counted. Be aware of the ceiling on that: the client can only see players the server has told
+it about, and in a packed mass that's a subset of who's really there.
 
-**Easiest way to test (IntelliJ):**
-1. `File → Open` this folder; let Gradle import.
-2. Run `DdTrackerPluginTest.main()` (in `src/test/java`). This launches RuneLite with the plugin loaded — log in and enable **Wildy Agility** in the plugin list.
+**If you're the one not stacked**, a pulsing **GET TO THE DD TILE** banner shows with your
+distance and the hint arrow points at the tile. It only fires if you're actually at the
+course, so being at the bank when a call goes out won't nag you.
 
-**Command line build:**
-```
-gradle build
-```
+If a call comes in and no DD tile is set, the plugin says so in chat rather than silently
+doing nothing.
 
-**Using it with your normal client:** RuneLite only loads third-party plugins from the Plugin Hub, so for day-to-day use you'd either run via the test launcher above or submit this to the Plugin Hub (https://github.com/runelite/plugin-hub) — the project already follows the hub layout (`runelite-plugin.properties`, standard Gradle structure).
+---
 
-## Notes
+## Pker callouts
 
-- A player who logs out, teleports, or leaves the area mid-call counts as a miss — which is usually exactly what you want to know.
-- Name matching handles rank icons and non-breaking spaces in chat names.
-- If a call comes in with no DD tile set, the plugin reminds you in the chatbox instead of silently doing nothing.
+When someone calls a location — "pker gate", "2 magers at log", "he's at pipe" — a hint arrow
+and an orange highlight appear on that spot with the caller's name, for 15 seconds.
+
+Recognised spots: **gate, pipe, rope** (or swing), **log, rocks** (or cliff), **dispenser,
+plank, multi, slip, ladder, lava, pit**.
+
+Coordinates ship as AFC's official tile markers, so this works out of the box. To fix one or
+add your own, stand on the spot and type `::ddloc <name>`.
+
+Ordinary chat won't set it off. A blocklist stops things like *"don't let him log"* or
+*"he's logging"* from pinging the log balance.
+
+---
+
+## Prayer calls
+
+"pray range", "prot mage", "protect melee" → the **prayer tab flashes** with a big
+`PRAY RANGE` banner for 15 seconds.
+
+It needs both a pray word *and* a style, so "he's ranging you" or "mage incoming" won't
+trigger it.
+
+---
+
+## Mass bank
+
+When **"mass bank" is called twice within 20 seconds**, the course gates turn gold and the
+hint arrow points at the nearest one, tagged `MASS BANK`. Two ranks saying it once each or
+one rank saying it twice both count, and you get a `mass bank 1/2` in chat while it waits.
+The plugin finds the gates itself from whatever is loaded around you, so there are no
+coordinates to set.
+
+It doesn't need the exact words — "mass bank in 2 mins", "ok everyone mass bank" and
+"mass banking" all work, since the phrase can sit anywhere in the message and tolerates an
+ending like *-ing*. Chat emoji don't break it either, even jammed straight against the words.
+
+They stay gold for **3 minutes**, timed from the most recent mention — so while people trickle
+back and the call gets repeated, the highlight extends rather than expiring mid-bank. Once
+it's up, a single repeat is enough to push the timer out again.
+
+A bank call never hides a pker callout. If a message somehow reads as both, you get both, and
+the arrow points at the pker.
+
+---
+
+## Friends chat capacity
+
+A friends chat caps at **500** members. As it fills up you get one warning at 480, 490 and
+500:
+
+> Wildy Agility: friends chat is at 487/500 members. 23 members are outside the mass world.
+
+Each warning fires once and only re-arms after the count drops back clear of it, so it won't
+spam at the boundary.
+
+---
+
+## Gear checks
+
+Anyone running with nothing equipped is flagged **Unarmed** in orange above their head, and
+anyone with no body **and** no leg armour is flagged **NAKED** in red. Both are on by default.
+
+The same players are listed live in the **Gear check** section at the top of the sidebar
+panel, so you can see who's a problem without hunting for orange text in a crowd. Naked
+sorts first. The list refreshes a couple of times a second and only covers players near you.
+
+Only *visible* equipment can be read client-side — nobody's inventory (food, phoenix
+necklaces, etc.) is visible to the plugin, or to any plugin.
+
+---
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `::ddloc` | Lists your saved callout locations |
+| `::ddloc <name>` | Saves your current tile as that location (e.g. stand on the pipe, type `::ddloc pipe`) |
+| `::ddloc remove <name>` | Deletes one |
+
+Locations are saved between sessions.
+
+---
+
+## Settings worth knowing
+
+Everything lives under the plugin's gear icon. The ones people actually change:
+
+- **Show welcome message** — the Agility FC / Discord note on start-up. On by default.
+- **Calls required** — how many times a call must be made within 20 seconds before it fires.
+  Set to 1 if you want it instant.
+- **Debug: explain call matching** — off by default. Turn it on if a call isn't being picked
+  up and the plugin will say in chat why it ignored the message.
+- **Ranked callers only** — on by default, so random members can't start calls. Turn it off
+  if you want to test the plugin on yourself.
+- **Listen to** — friends chat, clan chat, or both.
+- **Mass worlds / warn at** — the worlds masses run on (318, 319) and the capacity thresholds.
+- **Colours** — every highlight, banner and flash.
+
+---
+
+## Good to know
+
+- A player who logs out, teleports or leaves the area mid-call counts as a miss — which is
+  usually exactly what you want to know.
+- Stats are per-session. Closing the client clears them.
+- Name matching handles rank icons and the odd spacing RuneScape uses in chat names, so
+  players are tracked correctly regardless of how their name displays.
+- A pker callout takes priority over the "get to the DD tile" arrow — if someone gets called
+  while you're unstacked, the arrow points at the pker, then goes back to the tile.
+
+---
+
+## Links
+
+- **Friends chat:** `Agility FC` — open the chat-channel tab in game, click *Join Chat*, and
+  enter that name.
+- **Discord:** [discord.gg/agilityfc](https://discord.gg/agilityfc) — rules, gear guides,
+ announcements.
+---
+
+Made by **Torza** for Agility FC. BSD 2-Clause licensed — see LICENSE.
