@@ -33,44 +33,51 @@ public interface DdTrackerConfig extends Config
 	String welcomeSection = "welcomeSection";
 
 	@ConfigSection(
+		name = "Chat commands",
+		description = "Explicit '!' commands that fire instantly, instead of waiting for a call to be repeated",
+		position = 1
+	)
+	String commandSection = "commandSection";
+
+	@ConfigSection(
 		name = "DD calls",
 		description = "Settings for DD call detection and tracking",
-		position = 1
+		position = 2
 	)
 	String ddSection = "ddSection";
 
 	@ConfigSection(
 		name = "Mass calls",
 		description = "Mass bank reminder and friends chat capacity warnings",
-		position = 2
+		position = 3
 	)
 	String massSection = "massSection";
 
 	@ConfigSection(
 		name = "Callouts",
 		description = "Location callouts (gate, pipe, rope, ...) and prayer alerts",
-		position = 3
+		position = 4
 	)
 	String calloutSection = "calloutSection";
 
 	@ConfigSection(
 		name = "Gear check",
 		description = "Settings for flagging runners without proper gear",
-		position = 4
+		position = 5
 	)
 	String gearSection = "gearSection";
 
 	@ConfigSection(
 		name = "Colors",
 		description = "Highlight colors",
-		position = 5
+		position = 6
 	)
 	String colorSection = "colorSection";
 
 	@ConfigSection(
 		name = "Agility FC community",
 		description = "How to join Agility FC in game and on Discord",
-		position = 6,
+		position = 7,
 		closedByDefault = true
 	)
 	String communitySection = "communitySection";
@@ -101,12 +108,50 @@ public interface DdTrackerConfig extends Config
 		return false;
 	}
 
+	// ---- Chat commands ----
+
+	@ConfigItem(
+		keyName = "chatCommands",
+		name = "Enable ! commands",
+		description = "Let ranks fire a call instantly by prefixing it, e.g. '!dd', '!dd clear', '!mass bank'. A prefixed command skips the repeat requirement and all the guesswork about ordinary chat.",
+		position = 1,
+		section = commandSection
+	)
+	default boolean chatCommands()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "commandPrefix",
+		name = "Command prefix",
+		description = "Marker that turns a message into a command. '!' matches the convention RuneLite's own chat commands use and does not clash with any of them. Avoid ':' - people type it in emoticons - and never use a letter or digit, which would make ordinary words parse as commands. Avoid '::' entirely, as RuneLite swallows that as a client command and it never reaches the friends chat.",
+		position = 2,
+		section = commandSection
+	)
+	default String commandPrefix()
+	{
+		return "!";
+	}
+
+	@ConfigItem(
+		keyName = "bankCommands",
+		name = "Bank command words",
+		description = "What counts as a bank command after the prefix, e.g. '!bank'. DD commands reuse Trigger words and clears reuse Clear words, so those only need editing in one place.",
+		position = 3,
+		section = commandSection
+	)
+	default String bankCommands()
+	{
+		return "bank,mass bank,restock";
+	}
+
 	// ---- DD calls ----
 
 	@ConfigItem(
 		keyName = "triggerWords",
 		name = "Trigger words",
-		description = "Comma-separated words that start a DD call. The call must be made twice within 20 seconds before it counts, since that is how a real call goes out.",
+		description = "Comma-separated words that start a DD call. The call must be made twice within 20 seconds before it counts, since that is how a real call goes out. It then runs until someone clears it - see Clear words.",
 		position = 1,
 		section = ddSection
 	)
@@ -176,38 +221,14 @@ public interface DdTrackerConfig extends Config
 		return 60;
 	}
 
-	@Range(min = 1, max = 180)
-	@ConfigItem(
-		keyName = "graceSeconds",
-		name = "Grace period (s)",
-		description = "How long players have to get on the DD tile after the call. ~60s covers a full lap.",
-		position = 7,
-		section = ddSection
-	)
-	default int graceSeconds()
-	{
-		return 60;
-	}
 
-	@Range(min = 1, max = 180)
-	@ConfigItem(
-		keyName = "minCallGapSeconds",
-		name = "Min seconds between calls",
-		description = "Minimum time between distinct DD calls, measured from when a call starts. Any calls within this window (chat spam, or repeats for the same pker) fold into that one call. ~65s = one call per lap.",
-		position = 8,
-		section = ddSection
-	)
-	default int minCallGapSeconds()
-	{
-		return 65;
-	}
 
 	@Range(min = 0, max = 3)
 	@ConfigItem(
 		keyName = "tileTolerance",
 		name = "Tile tolerance",
 		description = "Count players within this many tiles of the DD tile as stacked (0 = exact tile only)",
-		position = 9,
+		position = 7,
 		section = ddSection
 	)
 	default int tileTolerance()
@@ -218,8 +239,8 @@ public interface DdTrackerConfig extends Config
 	@ConfigItem(
 		keyName = "chatSummary",
 		name = "Chat summary",
-		description = "Print a game message with results when the grace period ends",
-		position = 10,
+		description = "Print a game message with the results when a call is cleared or times out",
+		position = 8,
 		section = ddSection
 	)
 	default boolean chatSummary()
@@ -231,7 +252,7 @@ public interface DdTrackerConfig extends Config
 		keyName = "ddTileLocation",
 		name = "DD tile (saved)",
 		description = "x,y,plane of the DD tile. Set in game with Shift + right-click; persisted between sessions. Default is AFC's official DD tile.",
-		position = 11,
+		position = 9,
 		section = ddSection
 	)
 	default String ddTileLocation()
@@ -244,7 +265,7 @@ public interface DdTrackerConfig extends Config
 		keyName = "callsRequired",
 		name = "Calls required",
 		description = "How many times a DD or mass bank must be called within 20 seconds before it fires. Two different ranks calling it once each, or one rank calling it twice, both count. Set to 1 to fire on the first call.",
-		position = 12,
+		position = 10,
 		section = ddSection
 	)
 	default int callsRequired()
@@ -256,7 +277,7 @@ public interface DdTrackerConfig extends Config
 		keyName = "showCallProgress",
 		name = "Show call progress",
 		description = "A DD or mass bank call has to be made twice within 20 seconds before it fires. This says so in chat ('mass bank 1/2') instead of the plugin looking like it ignored the call.",
-		position = 13,
+		position = 11,
 		section = ddSection
 	)
 	default boolean showCallProgress()
@@ -267,8 +288,8 @@ public interface DdTrackerConfig extends Config
 	@ConfigItem(
 		keyName = "selfStackAlert",
 		name = "Alert me if I'm not stacked",
-		description = "Show a banner (and hint arrow) while a DD call is running and you are not on the DD tile",
-		position = 14,
+		description = "Show a banner (and hint arrow) while a DD call is running and you have not reached the DD tile. Once you have made it, stepping off keeps the arrow but drops the banner - a new call starts it over.",
+		position = 12,
 		section = ddSection
 	)
 	default boolean selfStackAlert()
@@ -280,12 +301,37 @@ public interface DdTrackerConfig extends Config
 		keyName = "selfStackHintArrow",
 		name = "Hint arrow to DD tile",
 		description = "Also point the hint arrow at the DD tile while you are not stacked. A location callout takes priority over this arrow.",
-		position = 15,
+		position = 13,
 		section = ddSection
 	)
 	default boolean selfStackHintArrow()
 	{
 		return true;
+	}
+
+	@ConfigItem(
+		keyName = "ddClearWords",
+		name = "Clear words",
+		description = "Comma-separated words that end a running DD call. The word must sit directly next to a trigger word, in either order - 'clear dd' and 'dd clear' both work, but 'dd pkers over by the ladder' does not, which is what stops ordinary chat from ending a call.",
+		position = 14,
+		section = ddSection
+	)
+	default String ddClearWords()
+	{
+		return "clear,cleared,off,good,done,over,finished";
+	}
+
+	@Range(min = 30, max = 1800)
+	@ConfigItem(
+		keyName = "maxCallSeconds",
+		name = "Give up after (s)",
+		description = "A call normally runs until someone clears it. This is the backstop for a clear that never comes, so a forgotten call cannot run all night.",
+		position = 15,
+		section = ddSection
+	)
+	default int maxCallSeconds()
+	{
+		return 180;
 	}
 
 	// ---- Mass calls ----

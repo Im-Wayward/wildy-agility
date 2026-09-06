@@ -327,9 +327,6 @@ public class DdTrackerPlugin extends Plugin
 	private int gearPanelTick;
 	private String lastGearSignature;
 
-	/** Tick before which no new DD call may start (min gap since the last call start). */
-	private int callBlockUntilTick;
-
 	private final Map<String, WorldPoint> landmarks = new LinkedHashMap<>();
 
 	// key: normalized lowercase name
@@ -380,7 +377,6 @@ public class DdTrackerPlugin extends Plugin
 		fcNextCheckTick = 0;
 		gearPanelTick = 0;
 		bankRescanTick = 0;
-		callBlockUntilTick = 0;
 		lastGearSignature = null;
 		ddRepeats.clear();
 		bankRepeats.clear();
@@ -426,10 +422,13 @@ public class DdTrackerPlugin extends Plugin
 		}
 
 		if (state == GameState.LOADING || state == GameState.HOPPING
-			|| state == GameState.LOGIN_SCREEN)
+			|| state == GameState.LOGIN_SCREEN || state == GameState.CONNECTION_LOST)
 		{
 			// Scene is being rebuilt; every tracked object reference is about to go stale.
+			// Re-arming the rescan matters during a live bank call - otherwise the gates
+			// sit un-highlighted until the timer next comes round.
 			bankGates.clear();
+			bankRescanTick = 0;
 		}
 
 		if (state == GameState.LOGIN_SCREEN || state == GameState.HOPPING
@@ -449,7 +448,10 @@ public class DdTrackerPlugin extends Plugin
 
 			if (panel != null)
 			{
+				// GameTick does not fire at the login screen, so nothing else would take
+				// these down until well after the next login.
 				panel.updateGear(new ArrayList<>());
+				panel.updateCall(null);
 			}
 		}
 	}
@@ -617,6 +619,11 @@ public class DdTrackerPlugin extends Plugin
 		if ("ddtracker".equals(event.getGroup()))
 		{
 			parseLandmarks();
+			if ("ddTileLocation".equals(event.getKey()))
+			{
+				loadDdTile();
+				updatePanel();
+			}
 			if ("bankGateNames".equals(event.getKey()))
 			{
 				// The cached id -> is-a-gate answers were decided by the old name list.
@@ -712,6 +719,16 @@ public class DdTrackerPlugin extends Plugin
 			return;
 		}
 
+		// An explicit command skips the repeat requirement and the phrase guessing, but it
+		// only suppresses the heuristic for the SAME subject - a command still runs the
+		// prayer, callout and (unless it WAS the bank command) bank checks. Not because
+		// any particular phrasing needs it, but because returning early means anything a
+		// rank types that we did not anticipate is silently dropped, and a swallowed pker
+		// callout is the worst failure this plugin has.
+		final CommandResult command = config.chatCommands()
+			? handleChatCommand(message, senderDisplay)
+			: CommandResult.NONE;
+
 		if (config.prayerAlerts())
 		{
 			checkPrayerCall(message, senderDisplay);
@@ -720,7 +737,7 @@ public class DdTrackerPlugin extends Plugin
 		// A bank call deliberately does NOT suppress the location callout: swallowing a
 		// pker callout on a false match would be far worse than showing both. The callout
 		// blocklist is what keeps ordinary chat from pinging an obstacle.
-		if (config.massBankReminder())
+		if (command != CommandResult.BANK && config.massBankReminder())
 		{
 			checkMassBank(message, senderDisplay);
 		}
@@ -728,6 +745,31 @@ public class DdTrackerPlugin extends Plugin
 		if (config.locationCallouts())
 		{
 			checkCallout(message, senderDisplay);
+		}
+
+		// The command path already dealt with the DD side of this message.
+		if (command != CommandResult.NONE)
+		{
+			return;
+		}
+
+		// Checked before isTrigger, and returns unconditionally: "dd clear" and "dd off"
+		// both START with a trigger word, so letting them fall through would end the call
+		// and immediately begin counting towards a new one.
+		if (isClearCall(message))
+		{
+			if (activeCall != null && !activeCall.isFinished())
+			{
+				endCall("cleared by " + senderDisplay);
+				// Only now: wiping the window when nothing was running would throw away
+				// progress towards a call that is still being spammed.
+				ddRepeats.clear();
+			}
+			else
+			{
+				debugMatch(senderDisplay, message, "clear heard, but no call is running");
+			}
+			return;
 		}
 
 		if (!isTrigger(message))
@@ -745,13 +787,12 @@ public class DdTrackerPlugin extends Plugin
 		final boolean confirmed =
 			ddRepeats.add(now, senderDisplay, required, repeatWindowTicks());
 
-		// De-duplicate spammed calls: everyone repeats "dd" so the whole FC sees it,
-		// but it is all one event for compliance purposes.
+		// One event: everyone repeats "dd" so the whole FC sees it, and the call runs until
+		// it is cleared, so every repeat in between belongs to the call already running.
+		// A FINISHED call is only hanging around so its summary can linger for a few
+		// seconds - a fresh confirmed call takes precedence over that, otherwise a pker
+		// arriving right after a clear would be silently swallowed.
 		if (activeCall != null && !activeCall.isFinished())
-		{
-			return;
-		}
-		if (now < callBlockUntilTick)
 		{
 			return;
 		}
@@ -782,36 +823,215 @@ public class DdTrackerPlugin extends Plugin
 			return false;
 		}
 
-		final Set<String> triggers = new HashSet<>();
-		for (String word : config.triggerWords().toLowerCase(Locale.ROOT).split(","))
+		final Set<String> triggers = triggerWordSet();
+		if (matchesTrigger(message, triggers))
 		{
-			final String w = word.trim();
-			if (!w.isEmpty())
-			{
-				triggers.add(w);
-			}
+			return true;
 		}
 
-		final String[] tokens = message.split("\\s+");
-		final int limit = config.matchAnywhere() ? tokens.length : 1;
+		// A call spammed letter by letter - "D D" - is one word once glued back together.
+		final String padded = phraseText(message);
+		final String glued = glueSpacedLetters(padded);
+		return !glued.equals(padded) && matchesTrigger(glued.trim(), triggers);
+	}
+
+	private boolean matchesTrigger(String text, Set<String> triggers)
+	{
+		final String[] tokens = text.split("\\s+");
+		final int limit = Math.min(config.matchAnywhere() ? tokens.length : 1, tokens.length);
 		for (int i = 0; i < limit; i++)
 		{
 			final String t = tokens[i].replaceAll("[^a-z0-9]", "");
-			if (t.isEmpty())
-			{
-				continue;
-			}
-			if (triggers.contains(t))
-			{
-				return true;
-			}
-			// "dd" also matches any run of d's: ddd, dddd, ...
-			if (triggers.contains("dd") && t.matches("d{2,}"))
+			if (!t.isEmpty() && isTriggerToken(t, triggers))
 			{
 				return true;
 			}
 		}
 		return false;
+	}
+
+	private Set<String> triggerWordSet()
+	{
+		return wordSet(config.triggerWords());
+	}
+
+	private static Set<String> wordSet(String commaSeparated)
+	{
+		final Set<String> words = new HashSet<>();
+		for (String word : commaSeparated.toLowerCase(Locale.ROOT).split(","))
+		{
+			final String w = word.trim();
+			if (!w.isEmpty())
+			{
+				words.add(w);
+			}
+		}
+		return words;
+	}
+
+	/** True if a token is a DD trigger - "dd" also covers any run of d's (ddd, dddd). */
+	private static boolean isTriggerToken(String token, Set<String> triggers)
+	{
+		return triggers.contains(token)
+			|| (triggers.contains("dd") && token.matches("d{2,}"));
+	}
+
+	/**
+	 * A call is cleared by a trigger word and a clear word sitting NEXT TO each other, in
+	 * either order - "clear dd", "dd clear", "good dd", "ok dd off now" all work without
+	 * listing every permutation.
+	 *
+	 * <p>Adjacency is the whole point. Merely finding both words somewhere in the message
+	 * matches ordinary combat chatter like "dd pkers still over by the ladder", and a false
+	 * clear is the worst failure this has: it ends a live call and records everyone who is
+	 * mid-lap as a miss. A missed clear only costs a wait for the deadline.
+	 */
+	private boolean isClearCall(String message)
+	{
+		final Set<String> triggers = triggerWordSet();
+		final Set<String> clearWords = wordSet(config.ddClearWords());
+
+		String previous = null;
+		for (String token : message.split("\\s+"))
+		{
+			final String t = token.replaceAll("[^a-z0-9]", "");
+			if (t.isEmpty())
+			{
+				continue;
+			}
+			if (previous != null
+				&& ((isTriggerToken(previous, triggers) && clearWords.contains(t))
+					|| (clearWords.contains(previous) && isTriggerToken(t, triggers))))
+			{
+				return true;
+			}
+			previous = t;
+		}
+		return false;
+	}
+
+	/** What a prefixed command turned out to be, so the caller knows what NOT to re-run. */
+	private enum CommandResult
+	{
+		NONE,
+		DD,
+		CLEAR,
+		BANK
+	}
+
+	/**
+	 * Handles a prefixed command such as "!dd", "!dd clear", "!clear", "!mass bank".
+	 *
+	 * <p>Nothing about the wording has to be guessed at, so these fire on the first message
+	 * rather than waiting for the call to be repeated. Anything that is not recognised
+	 * falls through to the ordinary detection, so a stray "!" costs nothing.
+	 *
+	 * <p>Within a command, word order and any extra words are irrelevant: "!dd" starts a
+	 * call and "!clear" or "!off" ends one, whatever else is in the message. The prefix is
+	 * the point - nobody types it by accident, so unlike ordinary chat there is nothing to
+	 * second-guess. The strict adjacency rule in {@link #isClearCall} stays where it is
+	 * needed, on unprefixed chat.
+	 */
+	private CommandResult handleChatCommand(String message, String sender)
+	{
+		final String prefix = config.commandPrefix().trim().toLowerCase(Locale.ROOT);
+		if (prefix.isEmpty() || !message.startsWith(prefix))
+		{
+			return CommandResult.NONE;
+		}
+
+		final List<String> words = new ArrayList<>();
+		for (String token : message.substring(prefix.length()).split("\\s+"))
+		{
+			final String w = token.replaceAll("[^a-z0-9]", "");
+			if (!w.isEmpty())
+			{
+				words.add(w);
+			}
+		}
+		if (words.isEmpty())
+		{
+			return CommandResult.NONE;
+		}
+
+		// "!M A S S  B A N K" and "!D D" read as one word once the spacing is undone.
+		final List<String> forms = new ArrayList<>(words);
+		for (String w : glueSpacedLetters(" " + String.join(" ", words) + " ").trim().split("\\s+"))
+		{
+			if (!w.isEmpty() && !forms.contains(w))
+			{
+				forms.add(w);
+			}
+		}
+
+		final Set<String> triggers = triggerWordSet();
+		final Set<String> clearWords = wordSet(config.ddClearWords());
+
+		boolean hasTrigger = false;
+		boolean hasClear = false;
+		for (String w : forms)
+		{
+			if (isTriggerToken(w, triggers))
+			{
+				hasTrigger = true;
+			}
+			else if (clearWords.contains(w))
+			{
+				hasClear = true;
+			}
+		}
+
+		// Checked before the trigger, since "!dd clear" holds both.
+		if (hasClear)
+		{
+			if (activeCall != null && !activeCall.isFinished())
+			{
+				endCall("cleared by " + sender);
+				ddRepeats.clear();
+			}
+			else
+			{
+				debugMatch(sender, message, "clear command, but no call is running");
+			}
+			return CommandResult.CLEAR;
+		}
+
+		// Anywhere in the command, not just the first word. The DD tile is a fixed spot by
+		// the exit gate, so nothing a rank types alongside "dd" could change what happens.
+		if (hasTrigger)
+		{
+			startCommandCall(sender);
+			return CommandResult.DD;
+		}
+
+		if (config.massBankReminder()
+			&& containsAnyPhrase(phraseText(String.join(" ", words)), config.bankCommands()))
+		{
+			bankRepeats.clear();
+			activateBankAlert(sender);
+			return CommandResult.BANK;
+		}
+
+		debugMatch(sender, message, "unrecognised command");
+		return CommandResult.NONE;
+	}
+
+	/** Starts a call immediately, bypassing the repeat rule, on an explicit command. */
+	private void startCommandCall(String caller)
+	{
+		if (activeCall != null && !activeCall.isFinished())
+		{
+			// Already running - the command is just another voice saying the same thing.
+			return;
+		}
+		if (ddTile == null)
+		{
+			gameMessage("Wildy Agility: DD called by " + caller
+				+ " but no DD tile is set. Shift + right-click a tile to set one.");
+			return;
+		}
+		ddRepeats.clear();
+		startCall(caller, client.getTickCount());
 	}
 
 	private boolean isRanked(String normalizedName, boolean friendsChat)
@@ -853,23 +1073,42 @@ public class DdTrackerPlugin extends Plugin
 
 	/**
 	 * @param calledAt tick of the FIRST message in the run of repeats, not the one that
-	 * confirmed it - so the grace period and the min-gap both run from when the call
-	 * actually went out in chat.
+	 * confirmed it, so the elapsed time reads from when the call actually went out.
 	 */
 	private void startCall(String caller, int calledAt)
 	{
-		// Clamped to the present: the run of repeats can span most of the 20s window, so a
-		// short grace period could otherwise produce a call that has already expired and
-		// records everyone as a miss on the very next tick.
 		final int now = client.getTickCount();
-		final int end = Math.max(now + 1,
-			calledAt + (int) Math.ceil(config.graceSeconds() * 1000.0 / TICK_MS));
-		callBlockUntilTick = Math.max(now,
-			calledAt + (int) Math.ceil(config.minCallGapSeconds() * 1000.0 / TICK_MS));
+		final int deadline = Math.max(now + 1,
+			calledAt + (int) Math.ceil(config.maxCallSeconds() * 1000.0 / TICK_MS));
 
-		activeCall = new DdCall(caller, end);
+		activeCall = new DdCall(caller, Math.min(calledAt, now), deadline);
 		snapshotPlayers();
 		checkCompliance();
+		updatePanel();
+	}
+
+	/** Ends the running call, records everyone's result, and shows the summary. */
+	private void endCall(String reason)
+	{
+		if (activeCall == null || activeCall.isFinished())
+		{
+			return;
+		}
+		activeCall.setEndReason(reason);
+		finishCall(client.getTickCount());
+	}
+
+	/** Throws the call away without recording anything - for a false trigger. */
+	private void discardCall()
+	{
+		activeCall = null;
+		ddRepeats.clear();
+		clearSelfStackAlert();
+		updatePanel();
+		if (panel != null)
+		{
+			panel.updateCall(null);
+		}
 	}
 
 	private void snapshotPlayers()
@@ -908,18 +1147,75 @@ public class DdTrackerPlugin extends Plugin
 
 	private void checkCompliance()
 	{
+		final Player local = client.getLocalPlayer();
+
 		for (Player p : client.getPlayers())
 		{
 			if (p == null || p.getName() == null)
 			{
 				continue;
 			}
-			final DdCall.TrackedPlayer tp = activeCall.getTracked().get(normalize(p.getName()));
-			if (tp != null && !tp.complied && isOnDdTile(p))
+
+			final String key = normalize(p.getName());
+			DdCall.TrackedPlayer tp = activeCall.getTracked().get(key);
+
+			if (tp == null)
+			{
+				// Late arrival. Only someone actually standing on the tile is added, so
+				// you can gain compliance by turning up but never lose it by having been
+				// out of range when the call went out.
+				if (!isOnDdTile(p) || !isMember(p, local))
+				{
+					continue;
+				}
+				tp = new DdCall.TrackedPlayer(Text.toJagexName(Text.removeTags(p.getName())));
+				activeCall.getTracked().put(key, tp);
+			}
+
+			if (!tp.complied && isOnDdTile(p))
 			{
 				tp.complied = true;
 			}
 		}
+	}
+
+	/** Live view of the running call for the sidebar; null when nothing is running. */
+	private DdStatus buildCallStatus()
+	{
+		if (activeCall == null || activeCall.isFinished())
+		{
+			return null;
+		}
+
+		final List<String> onTile = new ArrayList<>();
+		final List<String> offTile = new ArrayList<>();
+		final Set<String> stackedNow = new HashSet<>();
+
+		for (Player p : client.getPlayers())
+		{
+			if (p != null && p.getName() != null && isOnDdTile(p))
+			{
+				stackedNow.add(normalize(p.getName()));
+			}
+		}
+
+		for (Map.Entry<String, DdCall.TrackedPlayer> e : activeCall.getTracked().entrySet())
+		{
+			if (stackedNow.contains(e.getKey()))
+			{
+				onTile.add(e.getValue().displayName);
+			}
+			else
+			{
+				offTile.add(e.getValue().displayName);
+			}
+		}
+		onTile.sort(String.CASE_INSENSITIVE_ORDER);
+		offTile.sort(String.CASE_INSENSITIVE_ORDER);
+
+		final int elapsed = (int) ((client.getTickCount() - activeCall.getStartTick()) * TICK_MS / 1000);
+		return new DdStatus(activeCall.getCaller(), Math.max(0, elapsed), onTile, offTile,
+			activeCall.getCompliedCount());
 	}
 
 	@Subscribe
@@ -965,6 +1261,10 @@ public class DdTrackerPlugin extends Plugin
 		{
 			gearPanelTick = now + GEAR_PANEL_TICKS;
 			updateGearPanel();
+			if (panel != null)
+			{
+				panel.updateCall(buildCallStatus());
+			}
 		}
 
 		if (config.fcCapacityWarnings() && now >= fcNextCheckTick)
@@ -983,9 +1283,9 @@ public class DdTrackerPlugin extends Plugin
 		{
 			checkCompliance();
 			updateSelfStackAlert();
-			if (now >= activeCall.getEndTick())
+			if (now >= activeCall.getDeadlineTick())
 			{
-				finishCall(now);
+				endCall("timed out - nobody called it off");
 			}
 		}
 		else
@@ -1017,12 +1317,30 @@ public class DdTrackerPlugin extends Plugin
 			return;
 		}
 
-		selfStackAlertActive = true;
-		selfStackDistance = distance;
+		// Already made it this call and has just stepped off the tile: keep the arrow so
+		// the tile stays easy to find, but drop the banner. Being told to get there is
+		// noise once you have been - and during a long call people step off constantly.
+		// A NEW call starts a fresh tracked entry, so the banner comes back as normal.
+		final boolean alreadyStacked = hasLocalPlayerStacked(local);
+
+		selfStackAlertActive = !alreadyStacked;
+		selfStackDistance = alreadyStacked ? 0 : distance;
 		if (config.selfStackHintArrow())
 		{
 			setSelfStackArrow();
 		}
+	}
+
+	/** True once the local player has reached the DD tile during the running call. */
+	private boolean hasLocalPlayerStacked(Player local)
+	{
+		if (activeCall == null || local.getName() == null)
+		{
+			return false;
+		}
+		final DdCall.TrackedPlayer tp =
+			activeCall.getTracked().get(normalize(local.getName()));
+		return tp != null && tp.complied;
 	}
 
 	private void clearSelfStackAlert()
@@ -1104,9 +1422,16 @@ public class DdTrackerPlugin extends Plugin
 			return;
 		}
 
-		final boolean fresh = bankAlertLabel == null;
-		final String caller = fresh ? bankRepeats.runStarter(required) : sender;
+		final String caller = bankAlertLabel == null ? bankRepeats.runStarter(required) : sender;
 		bankRepeats.clear();
+		activateBankAlert(caller);
+	}
+
+	/** Lights the gates and (re)starts the timer. Shared by the heuristic and the command. */
+	private void activateBankAlert(String caller)
+	{
+		final int now = client.getTickCount();
+		final boolean fresh = bankAlertLabel == null;
 
 		bankAlertLabel = BANK_ALERT_LABEL;
 		bankAlertEndTick = now + (int) Math.ceil(config.massBankSeconds() * 1000.0 / TICK_MS);
@@ -1296,15 +1621,22 @@ public class DdTrackerPlugin extends Plugin
 		{
 			final int total = activeCall.getTracked().size();
 			final int good = activeCall.getCompliedCount();
-			String msg = "Wildy Agility: " + good + "/" + total + " stacked (call by " + activeCall.getCaller() + ").";
+			final String reason = activeCall.getEndReason();
+			String msg = "Wildy Agility: " + good + "/" + total + " stacked"
+				+ " (call by " + activeCall.getCaller()
+				+ (reason == null ? "" : ", " + reason) + ").";
 			if (!missed.isEmpty())
 			{
 				msg += " Missed: " + String.join(", ", missed);
 			}
-			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", msg, null);
+			gameMessage(msg);
 		}
 
 		updatePanel();
+		if (panel != null)
+		{
+			panel.updateCall(null);
+		}
 	}
 
 	// ---- Prayer calls ----
@@ -1448,19 +1780,36 @@ public class DdTrackerPlugin extends Plugin
 	private static boolean containsAnyPhrase(String paddedMessage, String phrases, int bareWordLimit)
 	{
 		final int wordCount = bareWordLimit <= 0 ? 0 : countWords(paddedMessage);
+		final String glued = glueSpacedLetters(paddedMessage);
 
 		for (String phrase : phrases.toLowerCase(Locale.ROOT).split(","))
 		{
 			final String p = phrase.trim();
-			if (p.isEmpty() || !containsPhrase(paddedMessage, p))
+			if (p.isEmpty())
 			{
 				continue;
 			}
+
+			// The bare-word rule is judged on the phrase as WRITTEN. "mass bank" stays a
+			// two-word phrase even though its glued form is one word, so spamming it
+			// letter by letter does not suddenly subject it to the single-word rule.
 			if (bareWordLimit > 0 && p.indexOf(' ') < 0 && wordCount > bareWordLimit)
 			{
 				continue;
 			}
-			return true;
+
+			if (containsPhrase(paddedMessage, p))
+			{
+				return true;
+			}
+			// Only for phrases written with a space, and tested against the glued reading
+			// as well as the original - that covers "M A S S  B A N K" and a run-together
+			// "massbank" in one step. For a single-word phrase this would just repeat the
+			// test above, so it is skipped.
+			if (p.indexOf(' ') >= 0 && containsPhrase(glued, p.replace(" ", "")))
+			{
+				return true;
+			}
 		}
 		return false;
 	}
@@ -1549,6 +1898,46 @@ public class DdTrackerPlugin extends Plugin
 		}
 	}
 
+	/**
+	 * Second reading of a message with runs of single letters glued back together, so the
+	 * way a call actually gets spammed - "M A S S  B A N K", "D D" - matches the same
+	 * phrase as "mass bank" and "dd".
+	 *
+	 * <p>Only runs of ONE-character tokens are joined. That is what keeps it safe: real
+	 * words are left alone, so "pkers at ladder" cannot glue into something containing
+	 * "dd", which a naive strip-all-spaces would happily do.
+	 *
+	 * @param paddedMessage output of {@link #phraseText(String)}
+	 */
+	private static String glueSpacedLetters(String paddedMessage)
+	{
+		final StringBuilder out = new StringBuilder(" ");
+		final StringBuilder run = new StringBuilder();
+
+		for (String token : paddedMessage.trim().split(" "))
+		{
+			if (token.length() == 1)
+			{
+				run.append(token);
+				continue;
+			}
+			if (run.length() > 0)
+			{
+				out.append(run).append(' ');
+				run.setLength(0);
+			}
+			if (!token.isEmpty())
+			{
+				out.append(token).append(' ');
+			}
+		}
+		if (run.length() > 0)
+		{
+			out.append(run).append(' ');
+		}
+		return out.toString();
+	}
+
 	private static int countWords(String paddedMessage)
 	{
 		final String trimmed = paddedMessage.trim();
@@ -1608,6 +1997,35 @@ public class DdTrackerPlugin extends Plugin
 	@Subscribe
 	public void onCommandExecuted(CommandExecuted event)
 	{
+		if ("ddclear".equalsIgnoreCase(event.getCommand()))
+		{
+			if (activeCall == null || activeCall.isFinished())
+			{
+				gameMessage("Wildy Agility: no DD call is running.");
+			}
+			else
+			{
+				endCall("cleared manually");
+			}
+			return;
+		}
+
+		if ("ddskip".equalsIgnoreCase(event.getCommand()))
+		{
+			// A finished call has already written everyone into stats, so "discarding" it
+			// would print a reassurance that is simply untrue.
+			if (activeCall == null || activeCall.isFinished())
+			{
+				gameMessage("Wildy Agility: no DD call is running.");
+			}
+			else
+			{
+				discardCall();
+				gameMessage("Wildy Agility: DD call discarded, nothing recorded.");
+			}
+			return;
+		}
+
 		if (!"ddloc".equalsIgnoreCase(event.getCommand()))
 		{
 			return;
@@ -1787,12 +2205,32 @@ public class DdTrackerPlugin extends Plugin
 
 	// ---- Stats / panel ----
 
+	/**
+	 * Deep copy, sorted here on the client thread. The panel renders on the EDT, and
+	 * sorting live PlayerStats objects there while {@link PlayerStats#record} mutates them
+	 * can read torn counts - or throw "Comparison method violates its general contract".
+	 */
 	List<PlayerStats> getStatsSnapshot()
 	{
-		return new ArrayList<>(stats.values());
+		final List<PlayerStats> snapshot = new ArrayList<>();
+		for (PlayerStats ps : stats.values())
+		{
+			snapshot.add(ps.copy());
+		}
+		snapshot.sort(Comparator
+			.comparingInt(PlayerStats::getMissed).reversed()
+			.thenComparing(PlayerStats::getCompliancePct)
+			.thenComparing(PlayerStats::getDisplayName, String.CASE_INSENSITIVE_ORDER));
+		return snapshot;
 	}
 
-	void resetStats()
+	/** Hops to the client thread: the button that calls this fires on the Swing EDT. */
+	void requestResetStats()
+	{
+		clientThread.invoke(this::resetStats);
+	}
+
+	private void resetStats()
 	{
 		stats.clear();
 		updatePanel();

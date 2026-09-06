@@ -21,6 +21,9 @@ of who stacks when it matters.
 
 The **red DD icon** in the RuneLite sidebar opens the stats panel.
 
+**Ranks:** you can drive all of this directly from chat with `!dd`, `!clear` and `!bank` —
+see [Calling things with `!`](#calling-things-with-) below.
+
 ---
 
 ## DD tracking
@@ -32,8 +35,10 @@ A single "dd" in conversation does nothing.
 While it's waiting for the second call you get a quiet `dd 1/2` in chat, so it's never
 silently doing nothing. Turn that off, or change how many calls are needed, in the settings.
 
-Everyone in your FC within **60 tiles** of the DD tile gets tracked for the next **60 seconds**
-(about one lap), and gets colour-coded above their head:
+Ranks also have the ability to instantly make a call using !dd, !clear, !off, or !massbank that gets pushed to everyone using the plugin.
+
+Everyone in your FC within **60 tiles** of the DD tile gets tracked, and colour-coded above
+their head:
 
 | Colour | Meaning |
 | --- | --- |
@@ -41,16 +46,32 @@ Everyone in your FC within **60 tiles** of the DD tile gets tracked for the next
 | 🟡 Yellow | Made it to the tile during the call, has since moved off |
 | 🔴 Red | Never made it |
 
-A countdown shows over the tile. When it runs out you get a summary in chat —
-`Wildy Agility: 5/7 stacked. Missed: PlayerA, PlayerB` — and the sidebar panel updates each
-player's running record: calls seen, times they stacked, and their compliance %. Worst
-offenders sort to the top. **Reset stats** in the panel clears the board.
+The tile shows how many are on it. The **sidebar** lists everyone live while the call runs —
+who's on the tile right now, who isn't, and how long it's been going.
 
-**Call spam is handled.** Everyone echoes "dd" so the whole FC sees it, and people repeat it
-for the same pker. Any calls within 65 seconds of each other fold into a single event, so one
-pker is one entry in everyone's stats — not fifteen. The next lap's real call still counts,
-and spam that arrives while a call is already running is counted toward the next one rather
-than thrown away.
+**The call runs until someone clears it.** It doesn't expire on a timer, because a DD lasts
+as long as the pker does. Any of these end it:
+
+- A rank typing `!clear`, `!off` or `!dd clear` — see the commands section below.
+- A rank calling it off in ordinary chat — a clear word next to `dd`, in either order:
+  **clear, cleared, off, good, done, over, finished**. So "clear dd", "dd clear", "off dd",
+  "good dd" all work.
+- Failing all of that, it gives up after 3 minutes so a forgotten call can't run all night.
+
+In ordinary chat the clear word has to sit *next to* the `dd`. That's deliberate: "dd pkers
+still over by the ladder" would otherwise end a live call and mark everyone mid-lap as a miss.
+A `!` command has no such restriction — nobody types `!` by accident, so it's taken at its
+word.
+
+When it ends you get a summary in chat — `Wildy Agility: 5/7 stacked (call by Torza, cleared
+by Rankname). Missed: PlayerA, PlayerB` — and the sidebar's compliance list updates: calls
+seen, times they stacked, compliance %. Worst offenders sort to the top. **Reset stats**
+clears the board.
+
+**Call spam is handled.** Everyone echoes "dd" so the whole FC sees it — every repeat while a
+call is running belongs to that same call, so one pker is one entry in everyone's stats, not
+fifteen. **Turning up late still counts:** anyone who reaches the tile during the call gets
+credit, even if they were out of range when it went out.
 
 The tracking radius is maxed at 60 tiles so leechers on the far side of the course still get
 counted. Be aware of the ceiling on that: the client can only see players the server has told
@@ -103,6 +124,10 @@ It doesn't need the exact words — "mass bank in 2 mins", "ok everyone mass ban
 "mass banking" all work, since the phrase can sit anywhere in the message and tolerates an
 ending like *-ing*. Chat emoji don't break it either, even jammed straight against the words.
 
+**Spamming it letter by letter works too.** `M A S S  B A N K` and `massbank` both register,
+which is how the call usually goes out when someone is hammering it. The same goes for `D D`
+spammed that way for a DD call.
+
 They stay gold for **3 minutes**, timed from the most recent mention — so while people trickle
 back and the call gets repeated, the highlight extends rather than expiring mid-bank. Once
 it's up, a single repeat is enough to push the timer out again.
@@ -138,15 +163,42 @@ necklaces, etc.) is visible to the plugin, or to any plugin.
 
 ---
 
-## Commands
+## Calling things with `!`
+
+Ranks can put `!` in front of a call to fire it **instantly** — no waiting for it to be
+repeated, and no guessing about what the rest of the message meant. Type it in the friends
+chat like any other message:
+
+| Typed in FC | What it does |
+| --- | --- |
+| `!dd` | Starts a DD call straight away |
+| `!dd clear`, `!clear`, `!off`, `!good` | Ends the running call |
+| `!mass bank`, `!bank` | Lights the gates straight away |
+
+Everyone running the plugin reacts, and members without it just see a normal chat line.
+
+Extra words don't matter — `!dd` starts a call and `!clear` or `!off` ends one no matter what
+else is in the message. The prefix is the point: nobody types it by accident, so a command is
+taken at face value rather than second-guessed the way ordinary chat is.
+
+`!` is the same convention RuneLite's own chat commands use (`!lvl`, `!kc`, `!pb`) and none of
+those clash with these. Anything unrecognised after the `!` is ignored and handled as ordinary
+chat.
+
+The ordinary detection still works, so ranks who don't use the `!` convention change nothing.
+Turn `!` commands off in the settings if your FC would rather not use them.
+
+## Your own commands
 
 | Command | What it does |
 | --- | --- |
+| `::ddclear` | Ends the running call and records the result |
+| `::ddskip` | Throws the call away, records nothing — for a false trigger |
 | `::ddloc` | Lists your saved callout locations |
 | `::ddloc <name>` | Saves your current tile as that location (e.g. stand on the pipe, type `::ddloc pipe`) |
 | `::ddloc remove <name>` | Deletes one |
 
-Locations are saved between sessions.
+These are local to you — nobody else sees them. Locations are saved between sessions.
 
 ---
 

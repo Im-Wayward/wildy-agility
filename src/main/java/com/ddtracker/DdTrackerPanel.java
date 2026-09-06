@@ -25,6 +25,8 @@ import net.runelite.client.util.LinkBrowser;
 public class DdTrackerPanel extends PluginPanel
 {
 	private final JLabel statusLabel = new JLabel();
+	private final JLabel callHeader = new JLabel();
+	private final JPanel callPanel = new JPanel();
 	private final JLabel gearHeader = new JLabel();
 	private final JPanel gearPanel = new JPanel();
 	private final JPanel listPanel = new JPanel();
@@ -46,7 +48,7 @@ public class DdTrackerPanel extends PluginPanel
 		header.add(statusLabel, BorderLayout.CENTER);
 
 		final JButton resetButton = new JButton("Reset stats");
-		resetButton.addActionListener(e -> plugin.resetStats());
+		resetButton.addActionListener(e -> plugin.requestResetStats());
 		header.add(resetButton, BorderLayout.SOUTH);
 
 		add(header, BorderLayout.NORTH);
@@ -57,6 +59,10 @@ public class DdTrackerPanel extends PluginPanel
 		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
 		body.setOpaque(false);
 
+		callPanel.setLayout(new BoxLayout(callPanel, BoxLayout.Y_AXIS));
+		callPanel.setOpaque(false);
+		callPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
 		gearPanel.setLayout(new BoxLayout(gearPanel, BoxLayout.Y_AXIS));
 		gearPanel.setOpaque(false);
 		gearPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -65,6 +71,10 @@ public class DdTrackerPanel extends PluginPanel
 		listPanel.setOpaque(false);
 		listPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
+		// Live call first: while one is running it is the only thing you care about.
+		body.add(sectionHeader(callHeader, "DD CALL"));
+		body.add(callPanel);
+		body.add(Box.createVerticalStrut(12));
 		body.add(sectionHeader(gearHeader, "GEAR CHECK"));
 		body.add(gearPanel);
 		body.add(Box.createVerticalStrut(12));
@@ -75,6 +85,7 @@ public class DdTrackerPanel extends PluginPanel
 		add(buildCommunityFooter(), BorderLayout.SOUTH);
 
 		updateGear(java.util.Collections.emptyList());
+		updateCall(null);
 	}
 
 	private JLabel sectionHeader(JLabel label, String text)
@@ -115,6 +126,64 @@ public class DdTrackerPanel extends PluginPanel
 		footer.add(discordLabel);
 
 		return footer;
+	}
+
+	// ---- Live DD call ----
+
+	void updateCall(DdStatus status)
+	{
+		SwingUtilities.invokeLater(() ->
+		{
+			callPanel.removeAll();
+
+			if (status == null)
+			{
+				callHeader.setText("DD CALL");
+				callPanel.add(hint("No call running."));
+			}
+			else
+			{
+				callHeader.setText("DD CALL — " + status.getOnTile().size()
+					+ " / " + status.getTracked() + " stacked");
+
+				final JLabel meta = hint(status.getElapsedSeconds() + "s · called by "
+					+ status.getCaller() + " · " + status.getComplied() + " have made it");
+				callPanel.add(meta);
+				callPanel.add(Box.createVerticalStrut(4));
+
+				for (String name : status.getOnTile())
+				{
+					callPanel.add(buildCallRow(name, "on tile", ColorScheme.PROGRESS_COMPLETE_COLOR));
+					callPanel.add(Box.createVerticalStrut(4));
+				}
+				for (String name : status.getOffTile())
+				{
+					callPanel.add(buildCallRow(name, "off", ColorScheme.PROGRESS_ERROR_COLOR));
+					callPanel.add(Box.createVerticalStrut(4));
+				}
+			}
+
+			callPanel.revalidate();
+			callPanel.repaint();
+		});
+	}
+
+	private JPanel buildCallRow(String name, String state, Color color)
+	{
+		final JPanel row = new JPanel(new GridLayout(1, 2));
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
+		row.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+		final JLabel nameLabel = new JLabel(name);
+		nameLabel.setForeground(Color.WHITE);
+		row.add(nameLabel);
+
+		final JLabel stateLabel = new JLabel(state, JLabel.RIGHT);
+		stateLabel.setForeground(color);
+		row.add(stateLabel);
+		return row;
 	}
 
 	// ---- Gear check (live) ----

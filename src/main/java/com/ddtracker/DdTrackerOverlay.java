@@ -95,9 +95,11 @@ public class DdTrackerOverlay extends Overlay
 	{
 		if (lp != null)
 		{
-			final int ticksLeft = Math.max(0, call.getEndTick() - client.getTickCount());
-			final int secsLeft = (int) Math.ceil(ticksLeft * 0.6);
-			renderTileText(graphics, lp, "DD! " + secsLeft + "s", Color.WHITE);
+			// Deliberately not a countdown: the call runs until someone clears it, so the
+			// useful number over the tile is how many are actually on it.
+			renderTileText(graphics, lp,
+				"DD  " + call.getCompliedCount() + "/" + call.getTracked().size(),
+				Color.WHITE);
 		}
 
 		for (Player p : client.getPlayers())
