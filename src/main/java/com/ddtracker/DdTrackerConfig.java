@@ -537,7 +537,7 @@ public interface DdTrackerConfig extends Config
 	@ConfigItem(
 		keyName = "gearCheck",
 		name = "Weapon check",
-		description = "Flag channel members with no weapon (ANY_WEAPON) or without a crossbow (CROSSBOW) equipped",
+		description = "Flag channel members with no weapon (ANY_WEAPON) or without a ranged/magic weapon like a bow, crossbow, or staff (CROSSBOW) equipped",
 		position = 1,
 		section = gearSection
 	)

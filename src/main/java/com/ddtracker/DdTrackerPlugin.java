@@ -220,6 +220,10 @@ public class DdTrackerPlugin extends Plugin
 	private static final Set<String> PRAY_WORDS = new HashSet<>(Arrays.asList(
 		"pray", "prays", "prayer", "prayers", "praying", "prot", "protect", "pro"));
 
+	/** Name keywords for magic weapons (staves and the handful that aren't named "staff"). */
+	private static final Set<String> MAGIC_WEAPON_KEYWORDS = new HashSet<>(Arrays.asList(
+		"staff", "wand", "trident", "sceptre"));
+
 	private static final Map<String, String> PRAY_STYLES = new HashMap<>();
 
 	static
@@ -2139,12 +2143,35 @@ public class DdTrackerPlugin extends Plugin
 		{
 			final ItemComposition def = client.getItemDefinition(weaponId);
 			final String name = def == null ? null : def.getName();
-			if (name == null || !name.toLowerCase(Locale.ROOT).contains("crossbow"))
+			if (!isRangedOrMagicWeapon(name))
 			{
-				return "No xbow";
+				return "No bow/staff";
 			}
 		}
 		return null;
+	}
+
+	/** Thrown weapons (knives, darts), melee weapons, and unrecognised names all fail this. */
+	private static boolean isRangedOrMagicWeapon(String name)
+	{
+		if (name == null)
+		{
+			return false;
+		}
+		final String lower = name.toLowerCase(Locale.ROOT);
+		if (lower.contains("bow"))
+		{
+			// Also matches "crossbow" - bows and crossbows share one check.
+			return true;
+		}
+		for (String keyword : MAGIC_WEAPON_KEYWORDS)
+		{
+			if (lower.contains(keyword))
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	boolean isNakedWarning(String warning)

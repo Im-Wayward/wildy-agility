@@ -10,7 +10,7 @@ public class GearFlag
 {
 	private final String displayName;
 
-	/** "NAKED", "Unarmed" or "No xbow" - the same label drawn over their head. */
+	/** "NAKED", "Unarmed" or "No bow/staff" - the same label drawn over their head. */
 	private final String warning;
 
 	boolean isNaked()
